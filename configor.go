@@ -48,7 +48,7 @@ func (c *Configor) GetEnvironment() string {
 			return "test"
 		}
 
-		return "dev"
+		return "development"
 	}
 	return c.Environment
 }

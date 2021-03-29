@@ -50,39 +50,7 @@ contacts:
   email: test@test.com
 ```
 
-## Debug Mode & Verbose Mode
-
-Debug/Verbose mode is helpful when debuging your application, `debug mode` will let you know how `configor` loaded your configurations, like from which file, shell env, `verbose mode` will tell you even more, like those shell environments `configor` tried to load.
-
-```go
-// Enable debug mode or set env `CONFIGOR_DEBUG_MODE` to true when running your application
-configor.New(&configor.Config{Debug: true}).Load(&Config, "config.json")
-
-// Enable verbose mode or set env `CONFIGOR_VERBOSE_MODE` to true when running your application
-configor.New(&configor.Config{Verbose: true}).Load(&Config, "config.json")
-```
-
-## Auto Reload Mode
-
-Configor can auto reload configuration based on time
-
-```go
-// auto reload configuration every second
-configor.New(&configor.Config{AutoReload: true}).Load(&Config, "config.json")
-
-// auto reload configuration every minute
-configor.New(&configor.Config{AutoReload: true, AutoReloadInterval: time.Minute}).Load(&Config, "config.json")
-```
-
-Auto Reload Callback
-
-```go
-configor.New(&configor.Config{AutoReload: true, AutoReloadCallback: func(config interface{}) {
-    fmt.Printf("%v changed", config)
-}}).Load(&Config, "config.json")
-```
-
-# Advanced Usage
+# Usage
 
 * Load mutiple configurations
 
@@ -147,7 +115,7 @@ $ go run config.go
 * Load From Shell Environment
 
 ```go
-$ CONFIGOR_APPNAME="hello world" CONFIGOR_DB_NAME="hello world" go run config.go
+$ APPNAME="hello world" DB_NAME="hello world" go run config.go
 // Load configuration from shell environment, it's name is {{prefix}}_FieldName
 ```
 
@@ -174,24 +142,8 @@ type Config struct {
 }
 ```
 
-With the `anonymous:"true"` tag specified, the environment variable for the `Description` field is `CONFIGOR_DESCRIPTION`.
-Without the `anonymous:"true"`tag specified, then environment variable would include the embedded struct name and be `CONFIGOR_DETAILS_DESCRIPTION`.
-
-* With flags
-
-```go
-func main() {
-	config := flag.String("file", "config.yml", "configuration file")
-	flag.StringVar(&Config.APPName, "name", "", "app name")
-	flag.StringVar(&Config.DB.Name, "db-name", "", "database name")
-	flag.StringVar(&Config.DB.User, "db-user", "root", "database user")
-	flag.Parse()
-
-	os.Setenv("CONFIGOR_ENV_PREFIX", "-")
-	configor.Load(&Config, *config)
-	// configor.Load(&Config) // only load configurations from shell env & flag
-}
-```
+With the `anonymous:"true"` tag specified, the environment variable for the `Description` field is `DESCRIPTION`.
+Without the `anonymous:"true"`tag specified, then environment variable would include the embedded struct name and be `DETAILS_DESCRIPTION`.
 
 ## Contributing
 

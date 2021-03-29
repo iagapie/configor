@@ -10,6 +10,7 @@ import (
 	"io/ioutil"
 	"os"
 	"reflect"
+	"regexp"
 	"strings"
 )
 
@@ -101,8 +102,8 @@ func (c *Configor) processTags(config interface{}, prefixes ...string) error {
 		}
 
 		if envName == "" {
-			envNames = append(envNames, strings.Join(append(prefixes, fieldStruct.Name), "_"))                  // Configor_DB_Name
-			envNames = append(envNames, strings.ToUpper(strings.Join(append(prefixes, fieldStruct.Name), "_"))) // CONFIGOR_DB_NAME
+			envNames = append(envNames, strings.Join(append(prefixes, fieldStruct.Name), "_"))                       // Configor_DB_Name
+			envNames = append(envNames, toScreamingSnakeCase(strings.Join(append(prefixes, fieldStruct.Name), "_"))) // CONFIGOR_DB_NAME
 		} else {
 			envNames = []string{envName}
 		}
@@ -161,4 +162,16 @@ func prefix(prefixes []string, fieldStruct *reflect.StructField) []string {
 		return prefixes
 	}
 	return append(prefixes, fieldStruct.Name)
+}
+
+var (
+	matchFirstCap = regexp.MustCompile("([A-Z])([A-Z][a-z])")
+	matchAllCap   = regexp.MustCompile("([a-z0-9])([A-Z])")
+)
+
+func toScreamingSnakeCase(input string) string {
+	output := matchFirstCap.ReplaceAllString(input, "${1}_${2}")
+	output = matchAllCap.ReplaceAllString(output, "${1}_${2}")
+	output = strings.ReplaceAll(output, "-", "_")
+	return strings.ToUpper(output)
 }

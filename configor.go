@@ -3,6 +3,8 @@ package configor
 import (
 	"fmt"
 	"github.com/BurntSushi/toml"
+	"github.com/joho/godotenv"
+	"log"
 	"os"
 	"path"
 	"reflect"
@@ -22,6 +24,17 @@ type Config struct {
 	// go 1.10 or later.
 	// This field will be ignored when compiled with go versions lower than 1.10.
 	ErrorOnUnmatchedKeys bool
+}
+
+func init() {
+	if err := godotenv.Load(); err != nil {
+		log.Println("No .env file found")
+	}
+
+	env := ".env." + New(nil).GetEnvironment()
+	if err := godotenv.Overload(env); err != nil {
+		log.Printf("No %s file found\n", env)
+	}
 }
 
 // Load will unmarshal configurations to struct from files that you provide

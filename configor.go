@@ -2,26 +2,21 @@ package configor
 
 import (
 	"fmt"
+	"github.com/BurntSushi/toml"
 	"os"
+	"path"
 	"reflect"
 	"regexp"
-	"time"
+	"strings"
 )
 
 type Configor struct {
 	*Config
-	configModTimes map[string]time.Time
 }
 
 type Config struct {
-	Environment        string
-	ENVPrefix          string
-	Debug              bool
-	Verbose            bool
-	Silent             bool
-	AutoReload         bool
-	AutoReloadInterval time.Duration
-	AutoReloadCallback func(config interface{})
+	Environment       string
+	EnvironmentPrefix string
 
 	// In case of json files, this field will be used only when compiled with
 	// go 1.10 or later.
@@ -29,36 +24,22 @@ type Config struct {
 	ErrorOnUnmatchedKeys bool
 }
 
-// New initialize a Configor
+// Load will unmarshal configurations to struct from files that you provide
+func Load(config interface{}, files ...string) error {
+	return New(nil).Load(config, files...)
+}
+
 func New(config *Config) *Configor {
 	if config == nil {
 		config = &Config{}
 	}
-
-	if os.Getenv("CONFIGOR_DEBUG_MODE") != "" {
-		config.Debug = true
-	}
-
-	if os.Getenv("CONFIGOR_VERBOSE_MODE") != "" {
-		config.Verbose = true
-	}
-
-	if os.Getenv("CONFIGOR_SILENT_MODE") != "" {
-		config.Silent = true
-	}
-
-	if config.AutoReload && config.AutoReloadInterval == 0 {
-		config.AutoReloadInterval = time.Second
-	}
-
 	return &Configor{Config: config}
 }
 
 var testRegexp = regexp.MustCompile("_test|(\\.test$)")
 
-// GetEnvironment get environment
-func (configor *Configor) GetEnvironment() string {
-	if configor.Environment == "" {
+func (c *Configor) GetEnvironment() string {
+	if c.Environment == "" {
 		if env := os.Getenv("CONFIGOR_ENV"); env != "" {
 			return env
 		}
@@ -67,55 +48,102 @@ func (configor *Configor) GetEnvironment() string {
 			return "test"
 		}
 
-		return "development"
+		return "dev"
 	}
-	return configor.Environment
+	return c.Environment
+}
+
+func (c *Configor) GetEnvironmentPrefix() string {
+	if c.EnvironmentPrefix == "" {
+		return os.Getenv("CONFIGOR_ENV_PREFIX")
+	}
+	return c.EnvironmentPrefix
 }
 
 // GetErrorOnUnmatchedKeys returns a boolean indicating if an error should be
 // thrown if there are keys in the config file that do not correspond to the
 // config struct
-func (configor *Configor) GetErrorOnUnmatchedKeys() bool {
-	return configor.ErrorOnUnmatchedKeys
+func (c *Configor) GetErrorOnUnmatchedKeys() bool {
+	return c.ErrorOnUnmatchedKeys
 }
 
 // Load will unmarshal configurations to struct from files that you provide
-func (configor *Configor) Load(config interface{}, files ...string) (err error) {
+func (c *Configor) Load(config interface{}, files ...string) (err error) {
 	defaultValue := reflect.Indirect(reflect.ValueOf(config))
 	if !defaultValue.CanAddr() {
 		return fmt.Errorf("Config %v should be addressable", config)
 	}
-	err, _ = configor.load(config, false, files...)
 
-	if configor.Config.AutoReload {
-		go func() {
-			timer := time.NewTimer(configor.Config.AutoReloadInterval)
-			for range timer.C {
-				reflectPtr := reflect.New(reflect.ValueOf(config).Elem().Type())
-				reflectPtr.Elem().Set(defaultValue)
+	configFiles := c.getConfigurationFiles(files...)
 
-				var changed bool
-				if err, changed = configor.load(reflectPtr.Interface(), true, files...); err == nil && changed {
-					reflect.ValueOf(config).Elem().Set(reflectPtr.Elem())
-					if configor.Config.AutoReloadCallback != nil {
-						configor.Config.AutoReloadCallback(config)
-					}
-				} else if err != nil {
-					fmt.Printf("Failed to reload configuration from %v, got error %v\n", files, err)
-				}
-				timer.Reset(configor.Config.AutoReloadInterval)
-			}
-		}()
+	for _, file := range configFiles {
+		if err := UnmarshalFile(config, file, c.ErrorOnUnmatchedKeys); err != nil {
+			return err
+		}
 	}
-	return
+
+	prefix := c.GetEnvironmentPrefix()
+	if prefix == "" {
+		return c.processTags(config)
+	}
+	return c.processTags(config, prefix)
 }
 
-// ENV return environment
-func ENV() string {
-	return New(nil).GetEnvironment()
+// UnmatchedTomlKeysError errors are returned by the Load function when
+// ErrorOnUnmatchedKeys is set to true and there are unmatched keys in the input
+// toml config file. The string returned by Error() contains the names of the
+// missing keys.
+type UnmatchedTomlKeysError struct {
+	Keys []toml.Key
 }
 
-// Load will unmarshal configurations to struct from files that you provide
-func Load(config interface{}, files ...string) error {
-	return New(nil).Load(config, files...)
+func (e *UnmatchedTomlKeysError) Error() string {
+	return fmt.Sprintf("There are keys in the config file that do not match any field in the given struct: %v", e.Keys)
+}
+
+func getFilenameWithENVPrefix(file, env string) (string, error) {
+	var (
+		envFile string
+		extname = path.Ext(file)
+	)
+
+	if extname == "" {
+		envFile = fmt.Sprintf("%v.%v", file, env)
+	} else {
+		envFile = fmt.Sprintf("%v.%v%v", strings.TrimSuffix(file, extname), env, extname)
+	}
+
+	if fileInfo, err := os.Stat(envFile); err == nil && fileInfo.Mode().IsRegular() {
+		return envFile, nil
+	}
+	return "", fmt.Errorf("failed to find file %v", file)
+}
+
+func (c *Configor) getConfigurationFiles(files ...string) []string {
+	var results []string
+
+	for i := len(files) - 1; i >= 0; i-- {
+		foundFile := false
+		file := files[i]
+
+		// check configuration
+		if fileInfo, err := os.Stat(file); err == nil && fileInfo.Mode().IsRegular() {
+			foundFile = true
+			results = append(results, file)
+		}
+
+		// check configuration with env
+		if file, err := getFilenameWithENVPrefix(file, c.GetEnvironment()); err == nil {
+			foundFile = true
+			results = append(results, file)
+		}
+
+		// check example configuration
+		if !foundFile {
+			if example, err := getFilenameWithENVPrefix(file, "example"); err == nil {
+				results = append(results, example)
+			}
+		}
+	}
+	return results
 }
